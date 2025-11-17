@@ -60,7 +60,7 @@ const App = () => {
       }
 
       if (DEBUG_LOGS) {
-        console.log("Texto extraÃ­do:", text);
+        console.log("Texto extraído:", text);
         console.log(
           "Texto limpo:",
           text.replace(/\n/g, " ").replace(/\s+/g, " ")
@@ -71,13 +71,13 @@ const App = () => {
 
       if (DEBUG_LOGS) {
         console.log("Dados parseados:", parsedData);
-        console.log("NÃƒÂºmero de gerentes encontrados:", parsedData.length);
+        console.log("Número de gerentes encontrados:", parsedData.length);
       }
 
       if (parsedData.length === 0) {
         if (DEBUG_LOGS) {
           console.error("DEBUG: Nenhum gerente encontrado");
-          console.log("Texto completo para anÃƒÂ¡lise:", text);
+          console.log("Texto completo para análise:", text);
         }
         throw new Error("Nenhum dado encontrado no PDF");
       }
@@ -143,7 +143,7 @@ const App = () => {
     const liquidoInfo = toNum(data.liquido);
     if (Math.abs(parcialCalc - parcialInfo) > 0.01 || Math.abs(liquidoCalc - liquidoInfo) > 0.01) {
       if (DEBUG_LOGS) {
-        console.warn("[FORTBET] DivergÃƒÂªncia detectada", {
+        console.warn("[FORTBET] Divergência detectada", {
           cambista: data.nome,
           periodo: data.periodo,
           parcial_informado: data.parcial,
@@ -611,36 +611,84 @@ const parsePDFTextStable = (text) => {
     const end = i + 1 < headers.length ? headers[i + 1].index : textNorm.length;
     const section = textNorm.slice(start, end);
 
-    const periodoMatch = section.match(/Per[i\u00ED]odo:\s*([0-9\/.\-\s\u00E0a]+\d{4})/iu);
+    const periodoMatch = section.match(/Per[i\u00ED]odo:\s*([0-9\/\.\-\s\u00E0a]+\d{4})/iu);
     const periodo = periodoMatch ? (periodoMatch[1] || "").trim() : "";
+
+    const headerMatch = section.match(
+      /Usu[\u00E1a]rio\s+N[\u00B0º�]?\s*apostas\s*Entradas\s*Sa[i\u00ED]das\s*Lan[c\u00E7]amentos\s*Cart[\u00F5o]es\s*Comiss[a\u00E3]o\s*Parcial\s*L[i\u00ED]quido/i
+    );
+    if (!headerMatch) {
+      if (DEBUG) {
+        console.warn(
+          `[PARSER] Cabeçalho da tabela não encontrado para ${headers[i].nome}`
+        );
+      }
+      continue;
+    }
+
+    const tableStartIndex = section.indexOf(headerMatch[0]) + headerMatch[0].length;
+    let tableContent = section.slice(tableStartIndex);
+    const totalMatchIndex = tableContent.search(/\b(?:Subtotal|Total)\b/i);
+    if (totalMatchIndex !== -1) {
+      tableContent = tableContent.slice(0, totalMatchIndex);
+    }
+    tableContent = tableContent.trim();
 
     const money = '-?\\s*\\d{1,3}(?:\\.\\d{3})*,\\d{2}';
     const rowRe = new RegExp(
-      `([${NAME_START_CHARS}][${NAME_BODY_CHARS}]*?)\\s+(\\d{1,4})\\s+R\\$\\s*(${money})\\s+R\\$\\s*(${money})\\s+R\\$\\s*(${money})\\s+R\\$\\s*(${money})\\s+R\\$\\s*(${money})\\s+R\\$\\s*(${money})\\s+R\\$\\s*(${money})`,
+      `([${NAME_START_CHARS}][${NAME_BODY_CHARS}]*?)\\s+([\\d\\.\\s]+)((?:\\s+R\\$\\s*${money}){6,8})`,
       'giu'
     );
 
     const cambistas = [];
     let rowMatch;
-    while ((rowMatch = rowRe.exec(section)) !== null) {
+    while ((rowMatch = rowRe.exec(tableContent)) !== null) {
       const nome = (rowMatch[1] || "").trim();
       if (
         !nome ||
-        /^(Subtotal|Total)$/i.test(nome) ||
+        /(subtotal|total)/i.test(nome) ||
         shouldIgnoreHeader(nome)
       )
         continue;
 
+      const apostaStr = (rowMatch[2] || "").replace(/[^\d]/g, "");
+      const currencyBlock = rowMatch[3] || "";
+      const valueMatches = Array.from(
+        currencyBlock.matchAll(new RegExp(money, 'gu'))
+      ).map((match) => (match[0] || "").replace(/\s+/g, ""));
+
+      if (valueMatches.length < 7) {
+        if (/(subtotal|total)/i.test(nome)) {
+          continue;
+        }
+        const lastValue = valueMatches[valueMatches.length - 1] || "0,00";
+        while (valueMatches.length < 7) {
+          valueMatches.push(lastValue);
+        }
+      } else if (valueMatches.length > 7) {
+        valueMatches.length = 7;
+      }
+
+      const [
+        entradas = "0,00",
+        saidas = "0,00",
+        lancamentos = "0,00",
+        cartoes = "0,00",
+        comissao = "0,00",
+        parcial = "0,00",
+        liquido = "0,00",
+      ] = valueMatches;
+
       cambistas.push({
         nome,
-        nApostas: (rowMatch[2] || "").replace(/[^\d]/g, ""),
-        entradas: (rowMatch[3] || "0,00").replace(/\s+/g, ""),
-        saidas: (rowMatch[4] || "0,00").replace(/\s+/g, ""),
-        lancamentos: (rowMatch[5] || "0,00").replace(/\s+/g, ""),
-        cartoes: (rowMatch[6] || "0,00").replace(/\s+/g, ""),
-        comissao: (rowMatch[7] || "0,00").replace(/\s+/g, ""),
-        parcial: (rowMatch[8] || "0,00").replace(/\s+/g, ""),
-        liquido: (rowMatch[9] || "0,00").replace(/\s+/g, ""),
+        nApostas: apostaStr,
+        entradas,
+        saidas,
+        lancamentos,
+        cartoes,
+        comissao,
+        parcial,
+        liquido,
       });
     }
 
@@ -664,6 +712,10 @@ const parsePDFTextStable = (text) => {
 // Parser global mantem compatibilidade apontando para o parser estavel
 const parsePDFTextGlobal = (text) => parsePDFTextStable(text);
 export default App;
+
+
+
+
 
 
 
