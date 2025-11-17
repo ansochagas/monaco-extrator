@@ -254,7 +254,7 @@ const App = () => {
     const fontLg = Math.round(base * 0.065);
 
     const defaultPosG = {
-      supervisor: [0.16, 0.155],
+      supervisor: [0.1775, 0.155],
       data: [0.195, 0.285],
       qtd_cambistas: [0.8675, 0.28],
       entradas: [0.3725, 0.44],
