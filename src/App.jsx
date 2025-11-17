@@ -309,6 +309,235 @@ const App = () => {
     return canvas.toDataURL("image/png");
   };
 
+  const generateResumoImage = async (gerente) => {
+    const rows = Array.isArray(gerente?.cambistas) ? gerente.cambistas : [];
+    const canvas = document.createElement("canvas");
+    const ctx = canvas.getContext("2d");
+    const width = 1400;
+    const margin = 60;
+    const blockHeaderHeight = 110;
+    const tableHeaderHeight = 56;
+    const rowHeight = 54;
+    const totalRows = rows.length + 1; // inclui Total
+    canvas.width = width;
+    canvas.height =
+      margin * 2 + blockHeaderHeight + tableHeaderHeight + rowHeight * Math.max(totalRows, 1);
+
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    const headerX = margin;
+    const headerWidth = width - margin * 2;
+
+    ctx.fillStyle = "#050505";
+    ctx.fillRect(headerX, margin, headerWidth, 60);
+    ctx.fillStyle = "#ffffff";
+    ctx.font = '700 30px "Montserrat", Arial, sans-serif';
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    const comissaoText = `Comissão R$ ${gerente?.comissao || "0,00"}`;
+    ctx.fillText(
+      `${gerente?.nome || "Gerente"} / ${comissaoText}`,
+      headerX + headerWidth / 2,
+      margin + 30
+    );
+
+    ctx.fillStyle = "#111111";
+    ctx.fillRect(headerX, margin + 60, headerWidth, 40);
+    ctx.fillStyle = "#ffffff";
+    ctx.font = '600 24px "Montserrat", Arial, sans-serif';
+    ctx.fillText(
+      `Período: ${gerente?.periodo || "Não informado"}`,
+      headerX + headerWidth / 2,
+      margin + 60 + 20
+    );
+
+    const toNum = (value) => {
+      if (value === null || value === undefined) return 0;
+      const normalized = String(value)
+        .replace(/\s+/g, "")
+        .replace(/\./g, "")
+        .replace(/,/, ".")
+        .replace(/-\s+/, "-")
+        .replace(/[^\d.-]/g, "");
+      const parsed = parseFloat(normalized);
+      return Number.isFinite(parsed) ? parsed : 0;
+    };
+    const formatCurrency = (value) =>
+      Number(value || 0).toLocaleString("pt-BR", {
+        style: "currency",
+        currency: "BRL",
+        minimumFractionDigits: 2,
+      });
+
+    const numericFields = [
+      "entradas",
+      "saidas",
+      "lancamentos",
+      "cartoes",
+      "comissao",
+      "parcial",
+      "liquido",
+    ];
+
+    const totals = {
+      nApostas: 0,
+      entradas: 0,
+      saidas: 0,
+      lancamentos: 0,
+      cartoes: 0,
+      comissao: 0,
+      parcial: 0,
+      liquido: 0,
+    };
+
+    const preparedRows = rows.map((c) => {
+      totals.nApostas += Number(c?.nApostas || 0);
+      const prepared = {
+        nome: c?.nome || "",
+        nApostas: String(c?.nApostas || "0"),
+      };
+      numericFields.forEach((field) => {
+        const num = toNum(c?.[field]);
+        totals[field] += num;
+        prepared[field] = {
+          raw: num,
+          text: formatCurrency(num),
+        };
+      });
+      return prepared;
+    });
+
+    const totalRow = {
+      nome: "Total",
+      nApostas: String(totals.nApostas || 0),
+    };
+    numericFields.forEach((field) => {
+      totalRow[field] = {
+        raw: totals[field],
+        text: formatCurrency(totals[field]),
+      };
+    });
+
+    const tableRows = [...preparedRows, totalRow];
+
+    const columns = [
+      { key: "nome", label: "Usuário", ratio: 0.23, align: "left" },
+      { key: "nApostas", label: "Nº apostas", ratio: 0.07, align: "center" },
+      { key: "entradas", label: "Entradas", ratio: 0.1, align: "center" },
+      { key: "saidas", label: "Saídas", ratio: 0.1, align: "center" },
+      { key: "lancamentos", label: "Lançamentos", ratio: 0.09, align: "center" },
+      { key: "cartoes", label: "Cartões", ratio: 0.09, align: "center" },
+      { key: "comissao", label: "Comissão", ratio: 0.1, align: "center" },
+      { key: "parcial", label: "Parcial", ratio: 0.11, align: "center" },
+      { key: "liquido", label: "Líquido", ratio: 0.11, align: "center" },
+    ];
+
+    const colPositions = [];
+    let cursorX = headerX;
+    columns.forEach((col) => {
+      const widthCol = headerWidth * col.ratio;
+      colPositions.push({
+        ...col,
+        x: cursorX,
+        width: widthCol,
+      });
+      cursorX += widthCol;
+    });
+
+    let currentY = margin + blockHeaderHeight;
+    ctx.fillStyle = "#0a0a0a";
+    ctx.fillRect(headerX, currentY, headerWidth, tableHeaderHeight);
+    ctx.fillStyle = "#ffffff";
+    ctx.font = '700 20px "Montserrat", Arial, sans-serif';
+    ctx.textBaseline = "middle";
+    colPositions.forEach((col) => {
+      const anchor =
+        col.align === "center"
+          ? col.x + col.width / 2
+          : col.align === "right"
+          ? col.x + col.width - 12
+          : col.x + 12;
+      ctx.textAlign = col.align === "right" ? "right" : col.align === "center" ? "center" : "left";
+      ctx.fillText(col.label, anchor, currentY + tableHeaderHeight / 2);
+    });
+
+    currentY += tableHeaderHeight;
+    ctx.font = '600 20px "Montserrat", Arial, sans-serif';
+    ctx.textAlign = "left";
+
+    const resolveColor = (key, rawValue, isTotal) => {
+      if (key === "nome" || key === "nApostas") {
+        return isTotal ? "#000000" : "#111111";
+      }
+      const basePositive = "#0f8f2c";
+      const baseNegative = "#c00000";
+      switch (key) {
+        case "entradas":
+        case "cartoes":
+        case "parcial":
+        case "liquido":
+          return rawValue >= 0 ? basePositive : baseNegative;
+        case "saidas":
+        case "comissao":
+          return baseNegative;
+        case "lancamentos":
+          return "#444444";
+        default:
+          return isTotal ? "#000000" : "#111111";
+      }
+    };
+
+    tableRows.forEach((row, index) => {
+      const isTotal = index === tableRows.length - 1;
+      ctx.fillStyle = isTotal
+        ? "#d1d5db"
+        : index % 2 === 0
+        ? "#f8fafc"
+        : "#eef2ff";
+      ctx.fillRect(headerX, currentY, headerWidth, rowHeight);
+
+      colPositions.forEach((col) => {
+        const anchor =
+          col.align === "center"
+            ? col.x + col.width / 2
+            : col.align === "right"
+            ? col.x + col.width - 14
+            : col.x + 14;
+        ctx.textAlign =
+          col.align === "right" ? "right" : col.align === "center" ? "center" : "left";
+        ctx.fillStyle = resolveColor(
+          col.key,
+          row[col.key]?.raw ?? 0,
+          isTotal
+        );
+        ctx.font = `${isTotal ? "700" : "600"} 20px "Montserrat", Arial, sans-serif`;
+        const value =
+          typeof row[col.key] === "object" && row[col.key] !== null
+            ? row[col.key].text
+            : row[col.key] || "";
+        ctx.fillText(value, anchor, currentY + rowHeight / 2);
+      });
+
+      currentY += rowHeight;
+    });
+
+    ctx.strokeStyle = "#cbd5f5";
+    ctx.lineWidth = 1;
+    let lineY = margin + blockHeaderHeight;
+    ctx.beginPath();
+    ctx.moveTo(headerX, lineY);
+    ctx.lineTo(headerX + headerWidth, lineY);
+    ctx.stroke();
+    lineY += tableHeaderHeight + rowHeight * totalRows;
+    ctx.beginPath();
+    ctx.moveTo(headerX, lineY);
+    ctx.lineTo(headerX + headerWidth, lineY);
+    ctx.stroke();
+
+    return canvas.toDataURL("image/png");
+  };
+
   const downloadAllImages = async () => {
     if (!processedData) return;
 
@@ -340,6 +569,9 @@ const App = () => {
 
         const gerenteImg = await generateGerenteImage(gerente);
         gerenteFolder.file("gerente.png", gerenteImg.split(",")[1], { base64: true });
+
+        const resumoImg = await generateResumoImage(gerente);
+        gerenteFolder.file("resumo.png", resumoImg.split(",")[1], { base64: true });
 
         await new Promise((resolve) => setTimeout(resolve, 100));
 
