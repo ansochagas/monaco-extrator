@@ -50,8 +50,26 @@ const toCurrency = (value) =>
 
 const parseExcelData = (rows, periodoTexto) => {
   const gerentes = [];
-  let columnIndices = null;
-  let parsingData = false;
+
+  // Create a single gerente for all cambistas
+  const gerente = {
+    nome: "Relatório Geral",
+    comissao: "0,00",
+    periodo: periodoTexto || "",
+    cambistas: [],
+  };
+  gerentes.push(gerente);
+
+  // Assume fixed column positions (0-based)
+  // 0: empty, 1: empty, 2: VENDEDOR, 3: APURADO, 4: COMISSÃO, 5: PRÊMIOS, 6: TOTAL, 7: LANÇAMENTOS
+  const COLUMN_INDICES = {
+    vendedor: 2,
+    apurado: 3,
+    comissao: 4,
+    premios: 5,
+    total: 6,
+    lancamentos: 7,
+  };
 
   for (const row of rows) {
     const cells = Array.isArray(row) ? row : [row];
@@ -60,60 +78,43 @@ const parseExcelData = (rows, periodoTexto) => {
       continue;
     }
 
+    // Skip header row if it looks like headers
     if (isHeaderRow(trimmed)) {
-      // Find column indices for this header row
-      columnIndices = {};
-      [...HEADER_LABELS, ...OPTIONAL_HEADERS].forEach((label) => {
-        const index = trimmed.findIndex((cell) =>
-          normalizeComparable(cell).startsWith(label)
-        );
-        columnIndices[label] = index;
-      });
-
-      // Create a single gerente for all cambistas
-      const gerente = {
-        nome: "Relatório Geral",
-        comissao: "0,00",
-        periodo: periodoTexto || "",
-        cambistas: [],
-      };
-      gerentes.push(gerente);
-      parsingData = true;
       continue;
     }
 
-    if (parsingData && columnIndices) {
-      const nameIndex = columnIndices.vendedor;
-      const nameCell = nameIndex >= 0 ? trimmed[nameIndex] : "";
+    const nameIndex = COLUMN_INDICES.vendedor;
+    const nameCell = nameIndex >= 0 ? trimmed[nameIndex] : "";
 
-      if (!nameCell) continue;
+    if (!nameCell) continue;
 
-      const getCurrency = (label) => {
-        const index = columnIndices[label];
-        return index >= 0 ? toCurrency(trimmed[index] || 0) : "0,00";
-      };
+    const getCurrency = (index) => {
+      return index >= 0 && index < trimmed.length
+        ? toCurrency(trimmed[index] || 0)
+        : "0,00";
+    };
 
-      const getNumber = (label) => {
-        const index = columnIndices[label];
-        return index >= 0 ? toNumber(trimmed[index] || 0) : 0;
-      };
+    const getNumber = (index) => {
+      return index >= 0 && index < trimmed.length
+        ? toNumber(trimmed[index] || 0)
+        : 0;
+    };
 
-      const totalValue = getNumber("total");
-      const lancamentosValue = getNumber("lancamentos");
-      const parcialValue = totalValue + lancamentosValue;
+    const totalValue = getNumber(COLUMN_INDICES.total);
+    const lancamentosValue = getNumber(COLUMN_INDICES.lancamentos);
+    const parcialValue = totalValue + lancamentosValue;
 
-      gerentes[0].cambistas.push({
-        nome: nameCell,
-        nApostas: "0",
-        entradas: getCurrency("apurado"),
-        comissao: getCurrency("comissao"),
-        saidas: getCurrency("premios"),
-        liquido: getCurrency("total"),
-        lancamentos: getCurrency("lancamentos"),
-        parcial: toCurrency(parcialValue),
-        cartoes: "0,00",
-      });
-    }
+    gerente.cambistas.push({
+      nome: nameCell,
+      nApostas: "0",
+      entradas: getCurrency(COLUMN_INDICES.apurado),
+      comissao: getCurrency(COLUMN_INDICES.comissao),
+      saidas: getCurrency(COLUMN_INDICES.premios),
+      liquido: getCurrency(COLUMN_INDICES.total),
+      lancamentos: getCurrency(COLUMN_INDICES.lancamentos),
+      parcial: toCurrency(parcialValue),
+      cartoes: "0,00",
+    });
   }
 
   return gerentes;
