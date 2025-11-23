@@ -1,10 +1,5 @@
 {
   "buildCommand": "npx vite build",
   "outputDirectory": "dist",
-  "framework": "vite",
-  "functions": {
-    "src/**/*.js": {
-      "runtime": "nodejs18.x"
-    }
-  }
+  "framework": "vite"
 }
