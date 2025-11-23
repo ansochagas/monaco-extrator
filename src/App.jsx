@@ -61,14 +61,14 @@ const parseExcelData = (rows, periodoTexto) => {
   gerentes.push(gerente);
 
   // Assume fixed column positions (0-based) based on Excel structure
-  // 0: empty, 1: area, 2: VENDEDOR, 3: APURADO, 4: COMISSÃO, 5: old_liquido, 6: PRÊMIOS, 7: TOTAL, 8: tpremios, 9: fpremio, 10: LANÇAMENTOS
+  // 0: empty, 1: area, 2: VENDEDOR, 3: APURADO, 4: COMISSÃO, 5: old_liquido, 6: PRÊMIOS, 7: TOTAL, 8: tpremios, 9: fpremio, 10: ?, 11: LANÇAMENTOS
   const COLUMN_INDICES = {
     vendedor: 2,
     apurado: 3,
     comissao: 4,
     premios: 6,
     total: 7,
-    lancamentos: 10,
+    lancamentos: 11,
   };
 
   for (const row of rows) {
