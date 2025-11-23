@@ -17,7 +17,7 @@ const HEADER_LABELS = [
   "vendedor",
   "apurado",
   "comissao",
-  "premio",
+  "premios",
   "total",
   "lancamentos",
 ];
@@ -107,7 +107,7 @@ const parseExcelData = (rows, periodoTexto) => {
         nApostas: "0",
         entradas: getCurrency("apurado"),
         comissao: getCurrency("comissao"),
-        saidas: getCurrency("premio"),
+        saidas: getCurrency("premios"),
         liquido: getCurrency("total"),
         lancamentos: getCurrency("lancamentos"),
         parcial: toCurrency(parcialValue),
