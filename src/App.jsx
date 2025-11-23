@@ -13,7 +13,14 @@ const normalizeComparable = (value) =>
     .replace(/[\u0300-\u036f]/g, "")
     .toLowerCase();
 
-const HEADER_LABELS = ["vendedor", "apurado", "comissao", "premio", "liquido"];
+const HEADER_LABELS = [
+  "vendedor",
+  "apurado",
+  "comissao",
+  "premio",
+  "total",
+  "lancamentos",
+];
 
 const OPTIONAL_HEADERS = ["total"];
 
@@ -86,15 +93,24 @@ const parseExcelData = (rows, periodoTexto) => {
         return index >= 0 ? toCurrency(trimmed[index] || 0) : "0,00";
       };
 
+      const getNumber = (label) => {
+        const index = columnIndices[label];
+        return index >= 0 ? toNumber(trimmed[index] || 0) : 0;
+      };
+
+      const totalValue = getNumber("total");
+      const lancamentosValue = getNumber("lancamentos");
+      const parcialValue = totalValue + lancamentosValue;
+
       gerentes[0].cambistas.push({
         nome: nameCell,
         nApostas: "0",
         entradas: getCurrency("apurado"),
         comissao: getCurrency("comissao"),
         saidas: getCurrency("premio"),
-        liquido: getCurrency("liquido"),
-        lancamentos: "0,00",
-        parcial: getCurrency("total"),
+        liquido: getCurrency("total"),
+        lancamentos: getCurrency("lancamentos"),
+        parcial: toCurrency(parcialValue),
         cartoes: "0,00",
       });
     }
