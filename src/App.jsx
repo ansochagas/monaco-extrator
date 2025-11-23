@@ -60,15 +60,15 @@ const parseExcelData = (rows, periodoTexto) => {
   };
   gerentes.push(gerente);
 
-  // Assume fixed column positions (0-based), adjusted for skipped empty column A
-  // 0: area, 1: VENDEDOR, 2: APURADO, 3: COMISSÃO, 4: old_liquido, 5: PRÊMIOS, 6: TOTAL, 7: tpremios, 8: fpremio, 9: ?, 10: LANÇAMENTOS
+  // Assume fixed column positions (0-based)
+  // 0: empty, 1: area, 2: VENDEDOR, 3: APURADO, 4: COMISSÃO, 5: old_liquido, 6: PRÊMIOS, 7: TOTAL, 8: tpremios, 9: LANÇAMENTOS, 10: fpremio
   const COLUMN_INDICES = {
-    vendedor: 1,
-    apurado: 2,
-    comissao: 3,
-    premios: 5,
-    total: 6,
-    lancamentos: 10,
+    vendedor: 2,
+    apurado: 3,
+    comissao: 4,
+    premios: 6,
+    total: 7,
+    lancamentos: 9,
   };
 
   for (const row of rows) {
