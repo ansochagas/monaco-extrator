@@ -354,6 +354,7 @@ const App = () => {
         acc.lancamentos += toNum(c.lancamentos);
         acc.cartoes += toNum(c.cartoes);
         acc.qtd += Number(c.nApostas || 0);
+        acc.parcial += toNum(c.parcial); // sum of each cambista's parcial (total + lancamentos)
         return acc;
       },
       {
@@ -363,11 +364,12 @@ const App = () => {
         lancamentos: 0,
         cartoes: 0,
         qtd: 0,
+        parcial: 0,
       }
     );
 
-    const parcialCalc = totals.entradas - totals.saidas - totals.comissoes;
-    const liquidoCalc = parcialCalc + totals.lancamentos - totals.cartoes;
+    const parcialCalc = totals.parcial; // use the sum of cambistas' parcial
+    const liquidoCalc = parcialCalc - totals.cartoes; // adjust if needed
     const qtdCambistas = Array.isArray(gerente.cambistas)
       ? gerente.cambistas.length
       : 0;
