@@ -225,19 +225,17 @@ const parseExcelData = (rows, periodoTexto) => {
 
     const parcialValue = totalValue + lancamentosValue;
 
-    // Debug for Ricardo
-    if (nameCell === "RICARDO") {
-      console.log("[DEBUG RICARDO]", {
-        nameCell,
-        COLUMN_INDICES,
-        totalValue,
-        lancamentosValue,
-        parcialValue,
-        rawTotal: trimmed[COLUMN_INDICES.total],
-        rawLancamentos: trimmed[effectiveLancIdx],
-        lancamentosIndex: effectiveLancIdx,
-      });
-    }
+    // Debug for all cambistas
+    console.log(`[DEBUG CAMBISTA ${nameCell}]`, {
+      nameCell,
+      COLUMN_INDICES,
+      totalValue,
+      lancamentosValue,
+      parcialValue,
+      rawTotal: trimmed[COLUMN_INDICES.total],
+      rawLancamentos: trimmed[effectiveLancIdx],
+      lancamentosIndex: effectiveLancIdx,
+    });
 
     const cambista = {
       nome: nameCell,
@@ -301,6 +299,7 @@ const App = () => {
   const [debugRows, setDebugRows] = useState([]);
 
   const handleFileUpload = async (e) => {
+    console.log("[UPLOAD] Iniciando upload");
     const uploadedFile = e.target.files[0];
     const allowedExtensions = [".xlsx", ".xls", ".csv"];
 
