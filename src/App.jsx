@@ -63,9 +63,6 @@ const isHeaderRow = (cells) => {
   const missingOptional = OPTIONAL_HEADERS.filter(
     (label) => !normalized.some((cell) => cell.startsWith(label))
   );
-  if (DEBUG_LOGS && missingOptional.length) {
-    console.log("[HEADER DETECT] faltando opcionais", missingOptional);
-  }
   return true;
 };
 
@@ -118,7 +115,6 @@ const toCurrency = (value) =>
   });
 
 const parseExcelData = (rows, periodoTexto) => {
-  console.log("[PARSE] Iniciando parseExcelData");
   const gerentes = [];
 
   const headerRowIndex = findHeaderRowIndex(rows);
@@ -127,12 +123,6 @@ const parseExcelData = (rows, periodoTexto) => {
     ...DEFAULT_COLUMN_INDICES,
     ...detectedColumns,
   };
-
-  if (DEBUG_LOGS) {
-    console.log("[PARSE] colunas detectadas", COLUMN_INDICES, {
-      headerRowIndex,
-    });
-  }
 
   // Create a single gerente for all cambistas
   const gerente = {
@@ -212,31 +202,10 @@ const parseExcelData = (rows, periodoTexto) => {
       }
       if (fallbackIdx >= 0) {
         lancamentosValue = toNumber(trimmed[fallbackIdx]);
-        if (DEBUG_LOGS) {
-          console.log("[PARSE ROW] fallback lancamentos", {
-            rowIndex,
-            fallbackIdx,
-            raw: trimmed[fallbackIdx],
-            lancamentosValue,
-          });
-        }
       }
     }
 
     const parcialValue = totalValue + lancamentosValue;
-
-    // Debug for all cambistas
-    console.log(`[DEBUG CAMBISTA ${nameCell}]`, {
-      nameCell,
-      COLUMN_INDICES,
-      totalValue,
-      lancamentosValue,
-      parcialValue,
-      rawTotal: trimmed[COLUMN_INDICES.total],
-      rawLancamentos: trimmed[effectiveLancIdx],
-      lancamentosIndex: effectiveLancIdx,
-      entireRow: trimmed,
-    });
 
     const cambista = {
       nome: nameCell,
@@ -248,22 +217,9 @@ const parseExcelData = (rows, periodoTexto) => {
       lancamentos: getCurrency(COLUMN_INDICES.lancamentos),
       parcial: toCurrency(parcialValue),
       cartoes: "0,00",
-      __debug: {
-        rowIndex,
-        rowLength: trimmed.length,
-        rawTotal: trimmed[COLUMN_INDICES.total],
-        rawLancamentos: trimmed[COLUMN_INDICES.lancamentos],
-        totalValue,
-        lancamentosValue,
-        parcialValue,
-      },
     };
 
     gerente.cambistas.push(cambista);
-
-    if (DEBUG_LOGS) {
-      console.log("[PARSE ROW]", cambista.__debug);
-    }
   }
 
   return gerentes;
@@ -297,10 +253,8 @@ const App = () => {
   const [periodoManual, setPeriodoManual] = useState("");
   const fileInputRef = useRef(null);
   const canvasRef = useRef(null);
-  const [debugRows, setDebugRows] = useState([]);
 
   const handleFileUpload = async (e) => {
-    console.log("[UPLOAD] Iniciando upload");
     const uploadedFile = e.target.files[0];
     const allowedExtensions = [".xlsx", ".xls", ".csv"];
 
@@ -348,37 +302,7 @@ const App = () => {
         throw new Error("Nenhuma gerência identificada. Verifique o arquivo.");
       }
 
-      if (DEBUG_LOGS) {
-        console.log("[EXCEL] Linhas importadas:", rows.length);
-        console.log("[EXCEL] Gerentes parseados:", parsedData);
-        console.log(
-          "[EXCEL] Amostra de linhas (0-4):",
-          rows
-            .slice(0, 5)
-            .map((r, idx) => ({ idx, len: Array.isArray(r) ? r.length : 0, r }))
-        );
-        parsedData.forEach((g, gi) => {
-          (g.cambistas || []).forEach((c, ci) => {
-            console.log("[EXCEL][ROW DEBUG]", {
-              gerente: gi,
-              cambista: ci,
-              ...c.__debug,
-            });
-          });
-        });
-      }
-
       setProcessedData(parsedData);
-      setDebugRows(
-        parsedData.flatMap((g, gi) =>
-          (g.cambistas || []).map((c, ci) => ({
-            gerenteIndex: gi,
-            cambistaIndex: ci,
-            nome: c.nome,
-            ...c.__debug,
-          }))
-        )
-      );
     } catch (err) {
       setError("Erro ao processar Excel: " + err.message);
       console.error(err);
@@ -1045,53 +969,6 @@ const App = () => {
                 </button>
               </div>
             </div>
-
-            {DEBUG_LOGS && debugRows.length > 0 && (
-              <div className="bg-white/5 backdrop-blur-xl rounded-2xl p-6 border border-red-400/30 shadow-2xl">
-                <h3 className="text-lg font-bold text-red-200 mb-3">
-                  Debug das linhas (TOTAL + LANÇAMENTOS)
-                </h3>
-                <div className="overflow-auto max-h-96 text-sm">
-                  <table className="min-w-full text-left">
-                    <thead className="text-red-100">
-                      <tr className="border-b border-white/10">
-                        <th className="py-2 pr-3">G</th>
-                        <th className="py-2 pr-3">Idx</th>
-                        <th className="py-2 pr-3">Nome</th>
-                        <th className="py-2 pr-3">rawTotal</th>
-                        <th className="py-2 pr-3">rawLanc</th>
-                        <th className="py-2 pr-3">totalValue</th>
-                        <th className="py-2 pr-3">lancValue</th>
-                        <th className="py-2 pr-3">parcialValue</th>
-                        <th className="py-2 pr-3">rowLen</th>
-                      </tr>
-                    </thead>
-                    <tbody className="text-white/90">
-                      {debugRows.map((row, idx) => (
-                        <tr
-                          key={`dbg-${idx}`}
-                          className={
-                            idx % 2 === 0 ? "bg-white/5" : "bg-white/10"
-                          }
-                        >
-                          <td className="py-2 pr-3">{row.gerenteIndex}</td>
-                          <td className="py-2 pr-3">{row.cambistaIndex}</td>
-                          <td className="py-2 pr-3">{row.nome}</td>
-                          <td className="py-2 pr-3">{String(row.rawTotal)}</td>
-                          <td className="py-2 pr-3">
-                            {String(row.rawLancamentos)}
-                          </td>
-                          <td className="py-2 pr-3">{row.totalValue}</td>
-                          <td className="py-2 pr-3">{row.lancamentosValue}</td>
-                          <td className="py-2 pr-3">{row.parcialValue}</td>
-                          <td className="py-2 pr-3">{row.rowLength}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            )}
 
             <div className="bg-white/5 backdrop-blur-xl rounded-2xl p-6 border border-white/10 shadow-2xl">
               <h3 className="text-xl font-bold text-[#ffe8a0] mb-4 uppercase tracking-wide">
