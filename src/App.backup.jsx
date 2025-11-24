@@ -22,81 +22,12 @@ const HEADER_LABELS = [
   "lancamentos",
 ];
 
-const OPTIONAL_HEADERS = ["total", "lancamentos"];
+const OPTIONAL_HEADERS = ["total"];
 
-const REQUIRED_HEADERS = HEADER_LABELS.filter(
-  (h) => !OPTIONAL_HEADERS.includes(h)
-);
-
-const HEADER_ALIASES = {
-  vendedor: ["vendedor", "usuario", "colaborador"],
-  apurado: ["apurado", "entradas"],
-  comissao: ["comissao", "comissão"],
-  premios: ["premios", "premio", "prêmios", "prêmio"],
-  total: ["total", "liquido", "l\u00edquido", "saldo_final"],
-  lancamentos: [
-    "lancamentos",
-    "lancamento",
-    "lan\u00e7amentos",
-    "lan\u00e7amento",
-    "ajustes",
-    "ajuste",
-    "acertos",
-  ],
-};
-
-const DEFAULT_COLUMN_INDICES = {
-  vendedor: 2,
-  apurado: 3,
-  comissao: 4,
-  premios: 6,
-  total: 7,
-  lancamentos: 10,
-};
-
-const isHeaderRow = (cells) => {
-  const normalized = cells.map(normalizeComparable);
-  const hasRequired = REQUIRED_HEADERS.every((label) =>
-    normalized.some((cell) => cell.startsWith(label))
+const isHeaderRow = (cells) =>
+  HEADER_LABELS.every((label) =>
+    cells.some((cell) => normalizeComparable(cell).startsWith(label))
   );
-  if (!hasRequired) return false;
-  const missingOptional = OPTIONAL_HEADERS.filter(
-    (label) => !normalized.some((cell) => cell.startsWith(label))
-  );
-  if (DEBUG_LOGS && missingOptional.length) {
-    console.log("[HEADER DETECT] faltando opcionais", missingOptional);
-  }
-  return true;
-};
-
-const detectColumnIndices = (rows) => {
-  for (const row of rows) {
-    const cells = Array.isArray(row) ? row : [row];
-    if (!cells.length) continue;
-    const normalized = cells.map(normalizeComparable);
-    if (!isHeaderRow(normalized)) continue;
-
-    const indices = {};
-    Object.entries(HEADER_ALIASES).forEach(([key, aliases]) => {
-      const idx = normalized.findIndex((cell) =>
-        aliases.some((alias) => cell.startsWith(alias))
-      );
-      if (idx >= 0) indices[key] = idx;
-    });
-
-    return indices;
-  }
-
-  return null;
-};
-
-const findHeaderRowIndex = (rows) => {
-  for (let i = 0; i < rows.length; i += 1) {
-    const cells = Array.isArray(rows[i]) ? rows[i] : [rows[i]];
-    if (isHeaderRow(cells)) return i;
-  }
-  return -1;
-};
 
 const toNumber = (value) => {
   if (value === null || value === undefined || value === "") return 0;
@@ -120,16 +51,6 @@ const toCurrency = (value) =>
 const parseExcelData = (rows, periodoTexto) => {
   const gerentes = [];
 
-  const detectedColumns = detectColumnIndices(rows) || {};
-  const COLUMN_INDICES = {
-    ...DEFAULT_COLUMN_INDICES,
-    ...detectedColumns,
-  };
-
-  if (DEBUG_LOGS) {
-    console.log("[PARSE] colunas detectadas", COLUMN_INDICES);
-  }
-
   // Create a single gerente for all cambistas
   const gerente = {
     nome: "Relatório Geral",
@@ -139,12 +60,18 @@ const parseExcelData = (rows, periodoTexto) => {
   };
   gerentes.push(gerente);
 
-  // Mapeamento de colunas detectado dinamicamente (com fallback nas posições padrão)
   // Assume fixed column positions (0-based)
   // 0: empty, 1: area, 2: VENDEDOR, 3: APURADO, 4: COMISSÃO, 5: old_liquido, 6: PRÊMIOS, 7: TOTAL, 8: tpremios, 9: fpremio, 10: LANÇAMENTOS
-  let rowIndex = -1;
+  const COLUMN_INDICES = {
+    vendedor: 2,
+    apurado: 3,
+    comissao: 4,
+    premios: 6,
+    total: 7,
+    lancamentos: 10,
+  };
+
   for (const row of rows) {
-    rowIndex += 1;
     const cells = Array.isArray(row) ? row : [row];
     const trimmed = cells.map(normalizeCell);
     if (trimmed.every((cell) => !cell)) {
@@ -174,60 +101,10 @@ const parseExcelData = (rows, periodoTexto) => {
     };
 
     const totalValue = getNumber(COLUMN_INDICES.total);
-    let lancamentosValue = getNumber(COLUMN_INDICES.lancamentos);
-
-    if (!lancamentosValue) {
-      // fallback: tenta achar o último número não-zero depois do TOTAL; se nada, último número não-zero da linha
-      let fallbackIdx = -1;
-      for (let i = trimmed.length - 1; i >= 0; i -= 1) {
-        if (i === COLUMN_INDICES.total) continue;
-        if (i > COLUMN_INDICES.total) {
-          const n = toNumber(trimmed[i]);
-          if (Number.isFinite(n) && n !== 0) {
-            fallbackIdx = i;
-            break;
-          }
-        }
-      }
-      if (fallbackIdx === -1) {
-        for (let i = trimmed.length - 1; i >= 0; i -= 1) {
-          if (i === COLUMN_INDICES.total) continue;
-          const n = toNumber(trimmed[i]);
-          if (Number.isFinite(n) && n !== 0) {
-            fallbackIdx = i;
-            break;
-          }
-        }
-      }
-      if (fallbackIdx >= 0) {
-        lancamentosValue = toNumber(trimmed[fallbackIdx]);
-        if (DEBUG_LOGS) {
-          console.log("[PARSE ROW] fallback lancamentos", {
-            rowIndex,
-            fallbackIdx,
-            raw: trimmed[fallbackIdx],
-            lancamentosValue,
-          });
-        }
-      }
-    }
-
+    const lancamentosValue = getNumber(COLUMN_INDICES.lancamentos);
     const parcialValue = totalValue + lancamentosValue;
 
-    // Debug for Ricardo
-    if (nameCell === "RICARDO") {
-      console.log("[DEBUG RICARDO]", {
-        nameCell,
-        COLUMN_INDICES,
-        totalValue,
-        lancamentosValue,
-        parcialValue,
-        rawTotal: trimmed[COLUMN_INDICES.total],
-        rawLancamentos: trimmed[COLUMN_INDICES.lancamentos],
-      });
-    }
-
-    const cambista = {
+    gerente.cambistas.push({
       nome: nameCell,
       nApostas: "0",
       entradas: getCurrency(COLUMN_INDICES.apurado),
@@ -237,22 +114,7 @@ const parseExcelData = (rows, periodoTexto) => {
       lancamentos: getCurrency(COLUMN_INDICES.lancamentos),
       parcial: toCurrency(parcialValue),
       cartoes: "0,00",
-      __debug: {
-        rowIndex,
-        rowLength: trimmed.length,
-        rawTotal: trimmed[COLUMN_INDICES.total],
-        rawLancamentos: trimmed[COLUMN_INDICES.lancamentos],
-        totalValue,
-        lancamentosValue,
-        parcialValue,
-      },
-    };
-
-    gerente.cambistas.push(cambista);
-
-    if (DEBUG_LOGS) {
-      console.log("[PARSE ROW]", cambista.__debug);
-    }
+    });
   }
 
   return gerentes;
@@ -286,7 +148,6 @@ const App = () => {
   const [periodoManual, setPeriodoManual] = useState("");
   const fileInputRef = useRef(null);
   const canvasRef = useRef(null);
-  const [debugRows, setDebugRows] = useState([]);
 
   const handleFileUpload = async (e) => {
     const uploadedFile = e.target.files[0];
@@ -324,7 +185,6 @@ const App = () => {
         header: 1,
         raw: false,
         blankrows: false,
-        defval: "",
       });
 
       if (!rows.length) {
@@ -339,34 +199,9 @@ const App = () => {
       if (DEBUG_LOGS) {
         console.log("[EXCEL] Linhas importadas:", rows.length);
         console.log("[EXCEL] Gerentes parseados:", parsedData);
-        console.log(
-          "[EXCEL] Amostra de linhas (0-4):",
-          rows
-            .slice(0, 5)
-            .map((r, idx) => ({ idx, len: Array.isArray(r) ? r.length : 0, r }))
-        );
-        parsedData.forEach((g, gi) => {
-          (g.cambistas || []).forEach((c, ci) => {
-            console.log("[EXCEL][ROW DEBUG]", {
-              gerente: gi,
-              cambista: ci,
-              ...c.__debug,
-            });
-          });
-        });
       }
 
       setProcessedData(parsedData);
-      setDebugRows(
-        parsedData.flatMap((g, gi) =>
-          (g.cambistas || []).map((c, ci) => ({
-            gerenteIndex: gi,
-            cambistaIndex: ci,
-            nome: c.nome,
-            ...c.__debug,
-          }))
-        )
-      );
     } catch (err) {
       setError("Erro ao processar Excel: " + err.message);
       console.error(err);
@@ -1033,53 +868,6 @@ const App = () => {
                 </button>
               </div>
             </div>
-
-            {DEBUG_LOGS && debugRows.length > 0 && (
-              <div className="bg-white/5 backdrop-blur-xl rounded-2xl p-6 border border-red-400/30 shadow-2xl">
-                <h3 className="text-lg font-bold text-red-200 mb-3">
-                  Debug das linhas (TOTAL + LANÇAMENTOS)
-                </h3>
-                <div className="overflow-auto max-h-96 text-sm">
-                  <table className="min-w-full text-left">
-                    <thead className="text-red-100">
-                      <tr className="border-b border-white/10">
-                        <th className="py-2 pr-3">G</th>
-                        <th className="py-2 pr-3">Idx</th>
-                        <th className="py-2 pr-3">Nome</th>
-                        <th className="py-2 pr-3">rawTotal</th>
-                        <th className="py-2 pr-3">rawLanc</th>
-                        <th className="py-2 pr-3">totalValue</th>
-                        <th className="py-2 pr-3">lancValue</th>
-                        <th className="py-2 pr-3">parcialValue</th>
-                        <th className="py-2 pr-3">rowLen</th>
-                      </tr>
-                    </thead>
-                    <tbody className="text-white/90">
-                      {debugRows.map((row, idx) => (
-                        <tr
-                          key={`dbg-${idx}`}
-                          className={
-                            idx % 2 === 0 ? "bg-white/5" : "bg-white/10"
-                          }
-                        >
-                          <td className="py-2 pr-3">{row.gerenteIndex}</td>
-                          <td className="py-2 pr-3">{row.cambistaIndex}</td>
-                          <td className="py-2 pr-3">{row.nome}</td>
-                          <td className="py-2 pr-3">{String(row.rawTotal)}</td>
-                          <td className="py-2 pr-3">
-                            {String(row.rawLancamentos)}
-                          </td>
-                          <td className="py-2 pr-3">{row.totalValue}</td>
-                          <td className="py-2 pr-3">{row.lancamentosValue}</td>
-                          <td className="py-2 pr-3">{row.parcialValue}</td>
-                          <td className="py-2 pr-3">{row.rowLength}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            )}
 
             <div className="bg-white/5 backdrop-blur-xl rounded-2xl p-6 border border-white/10 shadow-2xl">
               <h3 className="text-xl font-bold text-[#ffe8a0] mb-4 uppercase tracking-wide">
