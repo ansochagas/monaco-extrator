@@ -118,8 +118,10 @@ const toCurrency = (value) =>
   });
 
 const parseExcelData = (rows, periodoTexto) => {
+  console.log("[PARSE] Iniciando parseExcelData");
   const gerentes = [];
 
+  const headerRowIndex = findHeaderRowIndex(rows);
   const detectedColumns = detectColumnIndices(rows) || {};
   const COLUMN_INDICES = {
     ...DEFAULT_COLUMN_INDICES,
@@ -127,7 +129,9 @@ const parseExcelData = (rows, periodoTexto) => {
   };
 
   if (DEBUG_LOGS) {
-    console.log("[PARSE] colunas detectadas", COLUMN_INDICES);
+    console.log("[PARSE] colunas detectadas", COLUMN_INDICES, {
+      headerRowIndex,
+    });
   }
 
   // Create a single gerente for all cambistas
@@ -151,8 +155,11 @@ const parseExcelData = (rows, periodoTexto) => {
       continue;
     }
 
-    // Skip header row if it looks like headers
-    if (isHeaderRow(trimmed)) {
+    // Skip header row if it looks like headers ou estamos na/antes da linha de cabeçalho detectada
+    if (
+      isHeaderRow(trimmed) ||
+      (headerRowIndex >= 0 && rowIndex <= headerRowIndex)
+    ) {
       continue;
     }
 
@@ -174,7 +181,11 @@ const parseExcelData = (rows, periodoTexto) => {
     };
 
     const totalValue = getNumber(COLUMN_INDICES.total);
-    let lancamentosValue = getNumber(COLUMN_INDICES.lancamentos);
+    const effectiveLancIdx =
+      COLUMN_INDICES.lancamentos && COLUMN_INDICES.lancamentos < trimmed.length
+        ? COLUMN_INDICES.lancamentos
+        : trimmed.length - 1;
+    let lancamentosValue = getNumber(effectiveLancIdx);
 
     if (!lancamentosValue) {
       // fallback: tenta achar o último número não-zero depois do TOTAL; se nada, último número não-zero da linha
@@ -223,7 +234,8 @@ const parseExcelData = (rows, periodoTexto) => {
         lancamentosValue,
         parcialValue,
         rawTotal: trimmed[COLUMN_INDICES.total],
-        rawLancamentos: trimmed[COLUMN_INDICES.lancamentos],
+        rawLancamentos: trimmed[effectiveLancIdx],
+        lancamentosIndex: effectiveLancIdx,
       });
     }
 
