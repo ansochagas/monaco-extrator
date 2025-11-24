@@ -171,41 +171,14 @@ const parseExcelData = (rows, periodoTexto) => {
     };
 
     const totalValue = getNumber(COLUMN_INDICES.total);
-    const effectiveLancIdx =
-      COLUMN_INDICES.lancamentos && COLUMN_INDICES.lancamentos < trimmed.length
-        ? COLUMN_INDICES.lancamentos
-        : trimmed.length - 1;
-    let lancamentosValue = getNumber(effectiveLancIdx);
+    // Lançamentos: usa o valor da coluna se existir, senão 0
+    const lancamentosValue =
+      COLUMN_INDICES.lancamentos >= 0 &&
+      COLUMN_INDICES.lancamentos < trimmed.length
+        ? getNumber(COLUMN_INDICES.lancamentos)
+        : 0;
 
-    if (!lancamentosValue) {
-      // fallback: tenta achar o último número não-zero depois do TOTAL; se nada, último número não-zero da linha
-      let fallbackIdx = -1;
-      for (let i = trimmed.length - 1; i >= 0; i -= 1) {
-        if (i === COLUMN_INDICES.total) continue;
-        if (i > COLUMN_INDICES.total) {
-          const n = toNumber(trimmed[i]);
-          if (Number.isFinite(n) && n !== 0) {
-            fallbackIdx = i;
-            break;
-          }
-        }
-      }
-      if (fallbackIdx === -1) {
-        for (let i = trimmed.length - 1; i >= 0; i -= 1) {
-          if (i === COLUMN_INDICES.total) continue;
-          const n = toNumber(trimmed[i]);
-          if (Number.isFinite(n) && n !== 0) {
-            fallbackIdx = i;
-            break;
-          }
-        }
-      }
-      if (fallbackIdx >= 0) {
-        lancamentosValue = toNumber(trimmed[fallbackIdx]);
-      }
-    }
-
-    const parcialValue = totalValue; // Apenas o valor da coluna TOTAL (líquido)
+    const parcialValue = totalValue + lancamentosValue;
 
     const cambista = {
       nome: nameCell,
