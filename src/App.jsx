@@ -235,6 +235,7 @@ const parseExcelData = (rows, periodoTexto) => {
       rawTotal: trimmed[COLUMN_INDICES.total],
       rawLancamentos: trimmed[effectiveLancIdx],
       lancamentosIndex: effectiveLancIdx,
+      entireRow: trimmed,
     });
 
     const cambista = {
