@@ -205,7 +205,7 @@ const parseExcelData = (rows, periodoTexto) => {
       }
     }
 
-    const parcialValue = totalValue + lancamentosValue;
+    const parcialValue = totalValue; // Apenas o valor da coluna TOTAL (líquido)
 
     const cambista = {
       nome: nameCell,
