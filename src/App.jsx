@@ -170,7 +170,9 @@ const parseExcelData = (rows, periodoTexto) => {
         : 0;
     };
 
-    const totalValue = getNumber(COLUMN_INDICES.total);
+    const entradasValue = getNumber(COLUMN_INDICES.apurado);
+    const comissaoValue = getNumber(COLUMN_INDICES.comissao);
+    const premiosValue = getNumber(COLUMN_INDICES.premios);
     const effectiveLancIdx =
       COLUMN_INDICES.lancamentos && COLUMN_INDICES.lancamentos < trimmed.length
         ? COLUMN_INDICES.lancamentos
@@ -205,7 +207,9 @@ const parseExcelData = (rows, periodoTexto) => {
       }
     }
 
-    const parcialValue = totalValue + lancamentosValue;
+    // Cálculo correto do líquido: APURADO - COMISSÃO - PRÊMIOS + LANÇAMENTOS
+    const parcialValue =
+      entradasValue - comissaoValue - premiosValue + lancamentosValue;
 
     const cambista = {
       nome: nameCell,
