@@ -412,16 +412,17 @@ const App = () => {
       const upperName = (name || "Vendedor").toUpperCase();
       const length = upperName.length;
 
-      // Ajuste dinâmico do tamanho da fonte baseado no comprimento
-      let fontSize = fontLg;
-      if (length > 15) fontSize = Math.round(fontLg * 0.85); // ~49px
-      if (length > 20) fontSize = Math.round(fontLg * 0.75); // ~43px
-      if (length > 25) fontSize = Math.round(fontLg * 0.7); // ~40px
+      // Ajuste mais agressivo do tamanho da fonte baseado no comprimento
+      let fontSize = Math.round(fontLg * 0.8); // Começar com 80% (~46px) como padrão
+      if (length <= 8) fontSize = fontLg; // Nomes muito curtos: 58px
+      if (length <= 12) fontSize = Math.round(fontLg * 0.9); // ~52px
+      if (length > 18) fontSize = Math.round(fontLg * 0.7); // ~40px
+      if (length > 22) fontSize = Math.round(fontLg * 0.65); // ~38px
 
       // Se ainda for muito longo, quebrar em 2 linhas
-      if (length > 30) {
+      if (length > 25) {
         const words = upperName.split(" ");
-        if (words.length >= 3) {
+        if (words.length >= 2) {
           const midPoint = Math.ceil(words.length / 2);
           const line1 = words.slice(0, midPoint).join(" ");
           const line2 = words.slice(midPoint).join(" ");
@@ -441,7 +442,7 @@ const App = () => {
           ctx.font = `900 ${Math.round(
             fontSize * 0.9
           )}px "Montserrat", Arial, sans-serif`;
-          ctx.fillText(line2, pos.x, pos.y + Math.round(fontSize * 0.6));
+          ctx.fillText(line2, pos.x, pos.y + Math.round(fontSize * 0.7));
 
           return;
         }
