@@ -20,9 +20,10 @@ const HEADER_LABELS = [
   "premios",
   "total",
   "lancamentos",
+  "area",
 ];
 
-const OPTIONAL_HEADERS = ["total", "lancamentos"];
+const OPTIONAL_HEADERS = ["total", "lancamentos", "area"];
 
 const REQUIRED_HEADERS = HEADER_LABELS.filter(
   (h) => !OPTIONAL_HEADERS.includes(h)
@@ -33,19 +34,21 @@ const HEADER_ALIASES = {
   apurado: ["apurado", "entradas"],
   comissao: ["comissao", "comissão"],
   premios: ["premios", "premio", "prêmios", "prêmio"],
-  total: ["total", "liquido", "l\u00edquido", "saldo_final"],
+  total: ["total", "liquido", "líquido", "saldo_final"],
   lancamentos: [
     "lancamentos",
     "lancamento",
-    "lan\u00e7amentos",
-    "lan\u00e7amento",
+    "lançamentos",
+    "lançamento",
     "ajustes",
     "ajuste",
     "acertos",
   ],
+  area: ["area", "área", "regiao", "região", "setor"],
 };
 
 const DEFAULT_COLUMN_INDICES = {
+  area: 1,
   vendedor: 2,
   apurado: 3,
   comissao: 4,
@@ -124,14 +127,8 @@ const parseExcelData = (rows, periodoTexto) => {
     ...detectedColumns,
   };
 
-  // Create a single gerente for all cambistas
-  const gerente = {
-    nome: "Relatório Geral",
-    comissao: "0,00",
-    periodo: periodoTexto || "",
-    cambistas: [],
-  };
-  gerentes.push(gerente);
+  // Agrupar cambistas por área
+  const areasMap = new Map();
 
   // Mapeamento de colunas detectado dinamicamente (com fallback nas posições padrão)
   // Assume fixed column positions (0-based)
@@ -157,6 +154,12 @@ const parseExcelData = (rows, periodoTexto) => {
     const nameCell = nameIndex >= 0 ? trimmed[nameIndex] : "";
 
     if (!nameCell) continue;
+
+    const areaIndex = COLUMN_INDICES.area;
+    const areaCell = areaIndex >= 0 ? trimmed[areaIndex] : "Geral";
+
+    // Usar "Geral" como fallback se não houver área
+    const areaNome = areaCell || "Geral";
 
     const getCurrency = (index) => {
       return index >= 0 && index < trimmed.length
@@ -192,7 +195,35 @@ const parseExcelData = (rows, periodoTexto) => {
       cartoes: "0,00",
     };
 
-    gerente.cambistas.push(cambista);
+    // Agrupar por área
+    if (!areasMap.has(areaNome)) {
+      areasMap.set(areaNome, []);
+    }
+    areasMap.get(areaNome).push(cambista);
+  }
+
+  // Converter mapa de áreas para array de gerentes
+  for (const [areaNome, cambistas] of areasMap) {
+    const gerente = {
+      nome: areaNome,
+      area: areaNome,
+      comissao: "0,00",
+      periodo: periodoTexto || "",
+      cambistas: cambistas,
+    };
+    gerentes.push(gerente);
+  }
+
+  // Se não encontrou nenhuma área, manter compatibilidade com o sistema antigo
+  if (gerentes.length === 0) {
+    const gerente = {
+      nome: "Relatório Geral",
+      area: "Geral",
+      comissao: "0,00",
+      periodo: periodoTexto || "",
+      cambistas: [],
+    };
+    gerentes.push(gerente);
   }
 
   return gerentes;
@@ -738,9 +769,11 @@ const App = () => {
 
       for (let index = 0; index < processedData.length; index++) {
         const gerente = processedData[index];
-        const folderSlug = normalizePart(gerente?.nome, `gerente_${index + 1}`);
+        // Usar o nome da área para o nome da pasta
+        const areaNome = gerente?.area || gerente?.nome || `area_${index + 1}`;
+        const folderSlug = normalizePart(areaNome, `area_${index + 1}`);
         const gerenteFolder =
-          zip.folder(folderSlug) || zip.folder(`gerente_${index + 1}`);
+          zip.folder(folderSlug) || zip.folder(`area_${index + 1}`);
 
         if (!gerenteFolder) {
           continue;
@@ -911,7 +944,7 @@ const App = () => {
                     <span className="font-semibold text-[#f6d36f]">
                       {processedData.length}
                     </span>{" "}
-                    gerentes encontrados &bull;{" "}
+                    áreas encontradas &bull;{" "}
                     <span className="font-semibold text-[#f6d36f]">
                       {processedData.reduce(
                         (sum, g) =>
@@ -945,7 +978,7 @@ const App = () => {
 
             <div className="bg-white/5 backdrop-blur-xl rounded-2xl p-6 border border-white/10 shadow-2xl">
               <h3 className="text-xl font-bold text-[#ffe8a0] mb-4 uppercase tracking-wide">
-                Gerentes encontrados
+                Áreas encontradas
               </h3>
               <div className="divide-y divide-white/10">
                 {processedData.map((gerente, idx) => (
