@@ -412,12 +412,13 @@ const App = () => {
       const upperName = (name || "Vendedor").toUpperCase();
       const length = upperName.length;
 
-      // Ajuste mais agressivo do tamanho da fonte baseado no comprimento
-      let fontSize = Math.round(fontLg * 0.8); // Começar com 80% (~46px) como padrão
-      if (length <= 8) fontSize = fontLg; // Nomes muito curtos: 58px
-      if (length <= 12) fontSize = Math.round(fontLg * 0.9); // ~52px
-      if (length > 18) fontSize = Math.round(fontLg * 0.7); // ~40px
-      if (length > 22) fontSize = Math.round(fontLg * 0.65); // ~38px
+      // Ajuste ainda mais agressivo para nomes compostos
+      let fontSize = Math.round(fontLg * 0.7); // Começar com 70% (~40px) como padrão
+      if (length <= 6) fontSize = fontLg; // Nomes muito curtos: 58px
+      if (length <= 10) fontSize = Math.round(fontLg * 0.85); // ~49px
+      if (length <= 15) fontSize = Math.round(fontLg * 0.75); // ~43px
+      if (length > 20) fontSize = Math.round(fontLg * 0.6); // ~35px
+      if (length > 25) fontSize = Math.round(fontLg * 0.55); // ~32px
 
       // Se ainda for muito longo, quebrar em 2 linhas
       if (length > 25) {
