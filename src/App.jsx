@@ -407,11 +407,55 @@ const App = () => {
       color: "#ffffff",
     });
 
-    draw((data.nome || "Vendedor").toUpperCase(), "vendedor", {
-      align: "left",
-      size: fontLg,
-      color: "#041046",
-    });
+    // Renderização inteligente do nome do vendedor para evitar overflow
+    const renderVendedorName = (name) => {
+      const upperName = (name || "Vendedor").toUpperCase();
+      const length = upperName.length;
+
+      // Ajuste dinâmico do tamanho da fonte baseado no comprimento
+      let fontSize = fontLg;
+      if (length > 15) fontSize = Math.round(fontLg * 0.85); // ~49px
+      if (length > 20) fontSize = Math.round(fontLg * 0.75); // ~43px
+      if (length > 25) fontSize = Math.round(fontLg * 0.7); // ~40px
+
+      // Se ainda for muito longo, quebrar em 2 linhas
+      if (length > 30) {
+        const words = upperName.split(" ");
+        if (words.length >= 3) {
+          const midPoint = Math.ceil(words.length / 2);
+          const line1 = words.slice(0, midPoint).join(" ");
+          const line2 = words.slice(midPoint).join(" ");
+
+          // Desenhar primeira linha
+          draw(line1, "vendedor", {
+            align: "left",
+            size: Math.round(fontSize * 0.9),
+            color: "#041046",
+          });
+
+          // Desenhar segunda linha (ligeiramente abaixo)
+          const pos = point("vendedor");
+          ctx.fillStyle = "#041046";
+          ctx.textAlign = "left";
+          ctx.textBaseline = "middle";
+          ctx.font = `900 ${Math.round(
+            fontSize * 0.9
+          )}px "Montserrat", Arial, sans-serif`;
+          ctx.fillText(line2, pos.x, pos.y + Math.round(fontSize * 0.6));
+
+          return;
+        }
+      }
+
+      // Renderização normal com fonte ajustada
+      draw(upperName, "vendedor", {
+        align: "left",
+        size: fontSize,
+        color: "#041046",
+      });
+    };
+
+    renderVendedorName(data.nome);
 
     const drawValor = (value, key, opts = {}) =>
       draw(value, key, { align: "center", size: fontMd, ...opts });
