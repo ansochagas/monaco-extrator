@@ -433,7 +433,7 @@ const App = () => {
     // Dimensões fixas para layout clean
     const width = 800;
     const height = 600;
-    const margin = 40;
+    const margin = 60; // Aumentado de 40 para 60 para dar mais espaço ao título
     const headerHeight = 80;
     const rowHeight = 50;
 
@@ -551,27 +551,27 @@ const App = () => {
     ctx.stroke();
     currentY += 20;
 
-    // Tabela de valores
+    // Tabela de valores - Nova ordem conforme solicitado
     const tableData = [
       {
-        label: "Apurado Total:",
+        label: "Apurado:",
         value: fmt(totals.entradas),
         color: "#38a169",
       },
       { label: "Comissões:", value: fmt(totals.comissoes), color: "#e53e3e" },
       { label: "Prêmios:", value: fmt(totals.saidas), color: "#e53e3e" },
       {
+        label: "Total:",
+        value: fmt(parcialCalc),
+        color: parcialCalc >= 0 ? "#38a169" : "#e53e3e",
+      },
+      {
         label: "Lançamentos:",
         value: fmt(totals.lancamentos),
         color: "#38a169",
       },
       {
-        label: "Saldo Final:",
-        value: fmt(parcialCalc),
-        color: parcialCalc >= 0 ? "#38a169" : "#e53e3e",
-      },
-      {
-        label: "Saldo a Enviar:",
+        label: "Saldo:",
         value: fmt(liquidoCalc),
         color: liquidoCalc >= 0 ? "#38a169" : "#e53e3e",
       },
