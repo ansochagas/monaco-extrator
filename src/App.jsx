@@ -426,6 +426,175 @@ const App = () => {
     return canvas.toDataURL("image/png");
   };
 
+  const generateGerenteImageClean = async (gerente) => {
+    const canvas = document.createElement("canvas");
+    const ctx = canvas.getContext("2d");
+
+    // Dimensões fixas para layout clean
+    const width = 800;
+    const height = 600;
+    const margin = 40;
+    const headerHeight = 80;
+    const rowHeight = 50;
+
+    canvas.width = width;
+    canvas.height = height;
+
+    // Fundo branco
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(0, 0, width, height);
+
+    // Bordas
+    ctx.strokeStyle = "#333333";
+    ctx.lineWidth = 2;
+    ctx.strokeRect(margin, margin, width - margin * 2, height - margin * 2);
+
+    const toNum = (s) => {
+      if (!s && s !== 0) return 0;
+      const clean = String(s)
+        .replace(/\s+/g, "")
+        .replace(/\./g, "")
+        .replace(/,/, ".");
+      const signFixed = clean.replace(/-\s+/, "-");
+      const n = parseFloat(signFixed.replace(/[^\d.-]/g, ""));
+      return isNaN(n) ? 0 : n;
+    };
+
+    const fmt = (n) =>
+      (n || 0).toLocaleString("pt-BR", {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+      });
+
+    const totals = (gerente.cambistas || []).reduce(
+      (acc, c) => {
+        acc.entradas += toNum(c.entradas);
+        acc.saidas += toNum(c.saidas);
+        acc.comissoes += toNum(c.comissao);
+        acc.lancamentos += toNum(c.lancamentos);
+        acc.cartoes += toNum(c.cartoes);
+        acc.qtd += Number(c.nApostas || 0);
+        acc.parcial += toNum(c.parcial);
+        return acc;
+      },
+      {
+        entradas: 0,
+        saidas: 0,
+        comissoes: 0,
+        lancamentos: 0,
+        cartoes: 0,
+        qtd: 0,
+        parcial: 0,
+      }
+    );
+
+    const parcialCalc = totals.parcial;
+    const liquidoCalc = parcialCalc - totals.cartoes;
+    const qtdCambistas = Array.isArray(gerente.cambistas)
+      ? gerente.cambistas.length
+      : 0;
+
+    // Configuração de fonte
+    const fontTitle = 'bold 24px "Montserrat", Arial, sans-serif';
+    const fontHeader = 'bold 18px "Montserrat", Arial, sans-serif';
+    const fontNormal = '16px "Montserrat", Arial, sans-serif';
+
+    let currentY = margin + 20;
+
+    // Título
+    ctx.fillStyle = "#1a365d";
+    ctx.font = fontTitle;
+    ctx.textAlign = "center";
+    ctx.fillText("RELATÓRIO DE ÁREA", width / 2, currentY);
+    currentY += 40;
+
+    // Nome da área
+    ctx.fillStyle = "#2d3748";
+    ctx.font = fontHeader;
+    ctx.fillText(gerente.nome || "Área", width / 2, currentY);
+    currentY += 30;
+
+    // Período
+    ctx.fillStyle = "#4a5568";
+    ctx.font = fontNormal;
+    ctx.fillText(
+      `Período: ${gerente.periodo || "Não informado"}`,
+      width / 2,
+      currentY
+    );
+    currentY += 40;
+
+    // Linha separadora
+    ctx.strokeStyle = "#e2e8f0";
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(margin + 20, currentY);
+    ctx.lineTo(width - margin - 20, currentY);
+    ctx.stroke();
+    currentY += 20;
+
+    // Quantidade de cambistas
+    ctx.fillStyle = "#2d3748";
+    ctx.font = fontNormal;
+    ctx.textAlign = "left";
+    ctx.fillText(
+      `Quantidade de Cambistas: ${qtdCambistas}`,
+      margin + 20,
+      currentY
+    );
+    currentY += 40;
+
+    // Linha separadora
+    ctx.beginPath();
+    ctx.moveTo(margin + 20, currentY);
+    ctx.lineTo(width - margin - 20, currentY);
+    ctx.stroke();
+    currentY += 20;
+
+    // Tabela de valores
+    const tableData = [
+      {
+        label: "Apurado Total:",
+        value: fmt(totals.entradas),
+        color: "#38a169",
+      },
+      { label: "Comissões:", value: fmt(totals.comissoes), color: "#e53e3e" },
+      { label: "Prêmios:", value: fmt(totals.saidas), color: "#e53e3e" },
+      {
+        label: "Lançamentos:",
+        value: fmt(totals.lancamentos),
+        color: "#38a169",
+      },
+      {
+        label: "Saldo Final:",
+        value: fmt(parcialCalc),
+        color: parcialCalc >= 0 ? "#38a169" : "#e53e3e",
+      },
+      {
+        label: "Saldo a Enviar:",
+        value: fmt(liquidoCalc),
+        color: liquidoCalc >= 0 ? "#38a169" : "#e53e3e",
+      },
+    ];
+
+    tableData.forEach((item) => {
+      // Label
+      ctx.fillStyle = "#4a5568";
+      ctx.font = fontNormal;
+      ctx.textAlign = "left";
+      ctx.fillText(item.label, margin + 20, currentY);
+
+      // Value
+      ctx.fillStyle = item.color;
+      ctx.textAlign = "right";
+      ctx.fillText(`R$ ${item.value}`, width - margin - 20, currentY);
+
+      currentY += rowHeight;
+    });
+
+    return canvas.toDataURL("image/png");
+  };
+
   const generateGerenteImage = async (gerente) => {
     const canvas = document.createElement("canvas");
     const ctx = canvas.getContext("2d");
@@ -779,7 +948,7 @@ const App = () => {
           continue;
         }
 
-        const gerenteImg = await generateGerenteImage(gerente);
+        const gerenteImg = await generateGerenteImageClean(gerente);
         gerenteFolder.file("gerente.png", gerenteImg.split(",")[1], {
           base64: true,
         });
