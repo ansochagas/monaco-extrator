@@ -11,7 +11,9 @@ const normalizeComparable = (value) =>
   normalizeCell(value)
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
-    .toLowerCase();
+    .replace(/[^\w\s]/g, "") // Remove caracteres especiais restantes
+    .toLowerCase()
+    .trim();
 
 const HEADER_LABELS = [
   "vendedor",
