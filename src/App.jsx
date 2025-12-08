@@ -11,6 +11,12 @@ const normalizeComparable = (value) =>
   normalizeCell(value)
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
+    .replace(/ã/g, "a") // Fix specific corrupted characters
+    .replace(/õ/g, "o")
+    .replace(/ẽ/g, "e")
+    .replace(/ĩ/g, "i")
+    .replace(/ũ/g, "u")
+    .replace(/ç/g, "c")
     .replace(/[^\w\s]/g, "") // Remove caracteres especiais restantes
     .toLowerCase()
     .trim();
@@ -61,9 +67,11 @@ const DEFAULT_COLUMN_INDICES = {
 
 const isHeaderRow = (cells) => {
   const normalized = cells.map(normalizeComparable);
+
   const hasRequired = REQUIRED_HEADERS.every((label) =>
     normalized.some((cell) => cell.startsWith(label))
   );
+
   if (!hasRequired) return false;
   const missingOptional = OPTIONAL_HEADERS.filter(
     (label) => !normalized.some((cell) => cell.startsWith(label))
