@@ -2,24 +2,62 @@ import React, { useState, useRef } from "react";
 import { Upload, Download, FileText, CheckCircle, Loader } from "lucide-react";
 import * as XLSX from "xlsx";
 import JSZip from "jszip";
+import {
+  getDocument,
+  GlobalWorkerOptions,
+} from "pdfjs-dist/legacy/build/pdf.mjs";
 import arteColaboradorSrc from "./assets/arte_colaborador_monaco.png";
 import arteGerenteSrc from "./assets/arte_gerente_red.png";
 
+const arteColaboradorNovoSrc = "/arte_colaborador_nova.jpeg";
+
+GlobalWorkerOptions.workerSrc = "/pdf.worker.min.js";
+
 const normalizeCell = (value) => (value ?? "").toString().trim();
+
+const NAME_PARTICLES = new Set(["DA", "DE", "DI", "DO", "DOS", "DAS", "E"]);
 
 const normalizeComparable = (value) =>
   normalizeCell(value)
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
-    .replace(/ã/g, "a") // Fix specific corrupted characters
-    .replace(/õ/g, "o")
-    .replace(/ẽ/g, "e")
-    .replace(/ĩ/g, "i")
-    .replace(/ũ/g, "u")
-    .replace(/ç/g, "c")
-    .replace(/[^\w\s]/g, "") // Remove caracteres especiais restantes
-    .toLowerCase()
-    .trim();
+    .toLowerCase();
+
+const normalizeDisplayName = (value) =>
+  normalizeCell(value).replace(/\s+/g, " ").trim();
+
+const buildAbbreviatedName = (value) => {
+  const parts = normalizeDisplayName(value).split(" ").filter(Boolean);
+  if (parts.length <= 2) return parts.join(" ");
+
+  return parts
+    .map((part, index) => {
+      if (index === 0 || index === parts.length - 1) return part;
+      if (NAME_PARTICLES.has(part)) return part;
+      return `${part.charAt(0)}.`;
+    })
+    .join(" ");
+};
+
+const buildCompactName = (value) => {
+  const parts = normalizeDisplayName(value).split(" ").filter(Boolean);
+  if (parts.length <= 2) return parts.join(" ");
+
+  const lastRelevant =
+    [...parts]
+      .reverse()
+      .find((part) => !NAME_PARTICLES.has(part) && part.length > 1) ||
+    parts[parts.length - 1];
+
+  return [parts[0], lastRelevant].filter(Boolean).join(" ");
+};
+
+const buildVendorNameVariants = (value) => {
+  const baseName = normalizeDisplayName(value).toUpperCase() || "SEM NOME";
+  return [...new Set([baseName, buildAbbreviatedName(baseName), buildCompactName(baseName)])]
+    .map((name) => normalizeDisplayName(name))
+    .filter(Boolean);
+};
 
 const HEADER_LABELS = [
   "vendedor",
@@ -67,11 +105,9 @@ const DEFAULT_COLUMN_INDICES = {
 
 const isHeaderRow = (cells) => {
   const normalized = cells.map(normalizeComparable);
-
   const hasRequired = REQUIRED_HEADERS.every((label) =>
     normalized.some((cell) => cell.startsWith(label))
   );
-
   if (!hasRequired) return false;
   const missingOptional = OPTIONAL_HEADERS.filter(
     (label) => !normalized.some((cell) => cell.startsWith(label))
@@ -111,12 +147,37 @@ const findHeaderRowIndex = (rows) => {
 const toNumber = (value) => {
   if (value === null || value === undefined || value === "") return 0;
   if (typeof value === "number") return value;
-  const normalized = value
+  const cleaned = value
     .toString()
     .replace(/\s+/g, "")
-    .replace(/\./g, "")
-    .replace(/,/g, ".")
-    .replace(/[^0-9.-]/g, "");
+    .replace(/[^0-9,.-]/g, "");
+
+  if (!cleaned) return 0;
+
+  const lastComma = cleaned.lastIndexOf(",");
+  const lastDot = cleaned.lastIndexOf(".");
+  let normalized = cleaned;
+
+  if (lastComma >= 0 && lastDot >= 0) {
+    if (lastComma > lastDot) {
+      normalized = cleaned.replace(/\./g, "").replace(/,/g, ".");
+    } else {
+      normalized = cleaned.replace(/,/g, "");
+    }
+  } else if (lastComma >= 0) {
+    normalized = cleaned.replace(/\./g, "").replace(/,/g, ".");
+  } else {
+    const dots = cleaned.match(/\./g);
+    if (dots && dots.length > 1) {
+      const lastIndex = cleaned.lastIndexOf(".");
+      normalized =
+        cleaned.slice(0, lastIndex).replace(/\./g, "") +
+        cleaned.slice(lastIndex);
+    } else {
+      normalized = cleaned.replace(/,/g, "");
+    }
+  }
+
   const parsed = parseFloat(normalized);
   return Number.isFinite(parsed) ? parsed : 0;
 };
@@ -126,6 +187,207 @@ const toCurrency = (value) =>
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   });
+
+const isNearZero = (value) => Math.abs(toNumber(value)) < 0.000001;
+
+const PDF_DATE_REGEX = /\b\d{2}\/\d{2}\/\d{4}\b/;
+
+const PDF_COLUMNS = {
+  vendedorMaxX: 190,
+  vendido: { min: 195, max: 235 },
+  comissao: { min: 235, max: 285 },
+  premios: { min: 285, max: 333 },
+  liquido: { min: 333, max: 372 },
+  retirado: { min: 372, max: 410 },
+  lancamentos: { min: 410, max: 455 },
+  dAnterior: { min: 455, max: 525 },
+  caixa: { min: 525, max: 590 },
+};
+
+const groupPdfLines = (items) => {
+  const linesByY = new Map();
+
+  for (const item of items) {
+    const str = normalizeCell(item?.str);
+    if (!str) continue;
+
+    const x = Number(item?.transform?.[4] ?? 0);
+    const y = Number(item?.transform?.[5] ?? 0);
+    const yKey = y.toFixed(1);
+
+    if (!linesByY.has(yKey)) linesByY.set(yKey, []);
+    linesByY.get(yKey).push({ x, y, str });
+  }
+
+  return [...linesByY.entries()]
+    .map(([y, lineItems]) => ({
+      y: Number(y),
+      items: lineItems.sort((a, b) => a.x - b.x),
+    }))
+    .sort((a, b) => b.y - a.y);
+};
+
+const readPdfColumn = (lineItems, minX, maxX) =>
+  lineItems
+    .filter((item) => item.x >= minX && item.x < maxX)
+    .map((item) => item.str)
+    .join("")
+    .trim();
+
+const buildAreaNameFromLine = (lineItems) =>
+  lineItems
+    .filter((item) => item.x > 55)
+    .map((item) => item.str)
+    .join(" ")
+    .replace(/-+/g, " ")
+    .replace(/\s+/g, " ")
+    .replace(/^AREA:\s*/i, "")
+    .trim();
+
+const parsePdfData = async (arrayBuffer, periodoFallback = "") => {
+  const loadingTask = getDocument({ data: arrayBuffer });
+  const pdf = await loadingTask.promise;
+
+  const areasMap = new Map();
+  let dataFechamento = "";
+  let currentArea = "Geral";
+
+  for (let pageIndex = 1; pageIndex <= pdf.numPages; pageIndex += 1) {
+    const page = await pdf.getPage(pageIndex);
+    const textContent = await page.getTextContent();
+    const lines = groupPdfLines(textContent.items);
+
+    let insideAreaTable = false;
+
+    for (const line of lines) {
+      const lineText = line.items
+        .map((item) => item.str)
+        .join(" ")
+        .replace(/\s+/g, " ")
+        .trim();
+
+      if (!lineText) continue;
+
+      if (!dataFechamento) {
+        const foundDate = lineText.match(PDF_DATE_REGEX);
+        if (foundDate) {
+          dataFechamento = foundDate[0];
+        }
+      }
+
+      if (/^AREA:/i.test(lineText)) {
+        currentArea = buildAreaNameFromLine(line.items) || "Geral";
+        insideAreaTable = false;
+        continue;
+      }
+
+      if (/^VENDEDOR\b/i.test(lineText) && /D\.ANTERIOR/i.test(lineText)) {
+        insideAreaTable = true;
+        continue;
+      }
+
+      if (!insideAreaTable) continue;
+      if (lineText.includes("----")) continue;
+      if (/\bVENDEDORES\b/i.test(lineText)) continue;
+
+      const vendedor = line.items
+        .filter((item) => item.x < PDF_COLUMNS.vendedorMaxX)
+        .map((item) => item.str)
+        .join(" ")
+        .replace(/\s+/g, " ")
+        .trim();
+
+      if (!vendedor || /^VENDEDOR$/i.test(vendedor)) continue;
+
+      const dAnteriorText = readPdfColumn(
+        line.items,
+        PDF_COLUMNS.dAnterior.min,
+        PDF_COLUMNS.dAnterior.max
+      );
+
+      if (!dAnteriorText) continue;
+
+      const vendido = toNumber(
+        readPdfColumn(line.items, PDF_COLUMNS.vendido.min, PDF_COLUMNS.vendido.max)
+      );
+      const comissao = toNumber(
+        readPdfColumn(
+          line.items,
+          PDF_COLUMNS.comissao.min,
+          PDF_COLUMNS.comissao.max
+        )
+      );
+      const premios = toNumber(
+        readPdfColumn(line.items, PDF_COLUMNS.premios.min, PDF_COLUMNS.premios.max)
+      );
+      const liquido = toNumber(
+        readPdfColumn(line.items, PDF_COLUMNS.liquido.min, PDF_COLUMNS.liquido.max)
+      );
+      const lancamentos = toNumber(
+        readPdfColumn(
+          line.items,
+          PDF_COLUMNS.lancamentos.min,
+          PDF_COLUMNS.lancamentos.max
+        )
+      );
+      const dAnterior = toNumber(dAnteriorText);
+      const caixaText = readPdfColumn(
+        line.items,
+        PDF_COLUMNS.caixa.min,
+        PDF_COLUMNS.caixa.max
+      );
+      const caixa = caixaText ? toNumber(caixaText) : dAnterior;
+
+      const cambista = {
+        nome: vendedor,
+        nApostas: "0",
+        entradas: toCurrency(vendido),
+        comissao: toCurrency(comissao),
+        saidas: toCurrency(premios),
+        liquido: toCurrency(liquido),
+        lancamentos: toCurrency(lancamentos),
+        parcial: toCurrency(caixa),
+        cartoes: "0,00",
+        saldoAnterior: toCurrency(dAnterior),
+        saldoAnteriorNumero: dAnterior,
+      };
+
+      if (!areasMap.has(currentArea)) {
+        areasMap.set(currentArea, []);
+      }
+      areasMap.get(currentArea).push(cambista);
+    }
+  }
+
+  const periodoFinal = dataFechamento || periodoFallback || "";
+  const gerentes = [];
+
+  for (const [areaNome, cambistas] of areasMap) {
+    const totalComissao = cambistas.reduce(
+      (sum, cambista) => sum + toNumber(cambista.comissao),
+      0
+    );
+    gerentes.push({
+      nome: areaNome,
+      area: areaNome,
+      comissao: toCurrency(totalComissao),
+      periodo: periodoFinal,
+      cambistas,
+    });
+  }
+
+  if (!gerentes.length) {
+    gerentes.push({
+      nome: "Relatorio Geral",
+      area: "Geral",
+      comissao: "0,00",
+      periodo: periodoFinal,
+      cambistas: [],
+    });
+  }
+
+  return gerentes;
+};
 
 const parseExcelData = (rows, periodoTexto) => {
   const gerentes = [];
@@ -140,9 +402,9 @@ const parseExcelData = (rows, periodoTexto) => {
   // Agrupar cambistas por área
   const areasMap = new Map();
 
-  // Mapeamento de colunas detectado dinamicamente (com fallback nas posições padrão)
+  // Mapeamento de colunas detectado dinamicamente (com fallback nas posicoes padrao)
   // Assume fixed column positions (0-based)
-  // 0: empty, 1: area, 2: VENDEDOR, 3: APURADO, 4: COMISSÃO, 5: old_liquido, 6: PRÊMIOS, 7: TOTAL, 8: tpremios, 9: fpremio, 10: LANÇAMENTOS
+  // 0: empty, 1: area, 2: VENDEDOR, 3: APURADO, 4: COMISSAO, 5: old_liquido, 6: PREMIOS, 7: TOTAL, 8: tpremios, 9: fpremio, 10: LANCAMENTOS
   let rowIndex = -1;
   for (const row of rows) {
     rowIndex += 1;
@@ -256,6 +518,7 @@ const isDebugLoggingEnabled = () => {
 const DEBUG_LOGS = isDebugLoggingEnabled();
 console.log("[DEBUG FLAG]", DEBUG_LOGS, {
   arteColaboradorSrc,
+  arteColaboradorNovoSrc,
   arteGerenteSrc,
 });
 
@@ -270,55 +533,52 @@ const App = () => {
 
   const handleFileUpload = async (e) => {
     const uploadedFile = e.target.files[0];
-    const allowedExtensions = [".xlsx", ".xls", ".csv"];
-
+    const allowedExtensions = [".xlsx", ".xls", ".csv", ".pdf"];
     if (!uploadedFile) {
-      setError("Selecione um arquivo de relatório");
+      setError("Selecione um arquivo de relatorio");
       return;
     }
-
     const fileName = (uploadedFile.name || "").toLowerCase();
+    const isPdfFile = fileName.endsWith(".pdf");
     if (!allowedExtensions.some((ext) => fileName.endsWith(ext))) {
-      setError("Envie um arquivo Excel válido (.xlsx ou .xls)");
+      setError("Envie um arquivo valido (.xlsx, .xls, .csv ou .pdf)");
       return;
     }
-
-    if (!periodoManual.trim()) {
-      setError("Informe o período do relatório antes de prosseguir");
+    if (!isPdfFile && !periodoManual.trim()) {
+      setError("Informe o periodo do relatorio antes de prosseguir");
       return;
     }
-
     setFile(uploadedFile);
     setError(null);
     setProcessing(true);
-
     try {
       const arrayBuffer = await uploadedFile.arrayBuffer();
-      const workbook = XLSX.read(arrayBuffer, { type: "array" });
-      const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
-      if (!firstSheet) {
-        throw new Error("Planilha sem abas válidas");
+      let parsedData = [];
+      if (isPdfFile) {
+        parsedData = await parsePdfData(arrayBuffer, periodoManual.trim());
+      } else {
+        const workbook = XLSX.read(arrayBuffer, { type: "array" });
+        const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
+        if (!firstSheet) {
+          throw new Error("Planilha sem abas validas");
+        }
+        const rows = XLSX.utils.sheet_to_json(firstSheet, {
+          header: 1,
+          raw: false,
+          blankrows: false,
+          defval: "",
+        });
+        if (!rows.length) {
+          throw new Error("Planilha vazia");
+        }
+        parsedData = parseExcelData(rows, periodoManual.trim());
       }
-
-      const rows = XLSX.utils.sheet_to_json(firstSheet, {
-        header: 1,
-        raw: false,
-        blankrows: false,
-        defval: "",
-      });
-
-      if (!rows.length) {
-        throw new Error("Planilha vazia");
-      }
-
-      const parsedData = parseExcelData(rows, periodoManual.trim());
       if (!parsedData.length) {
-        throw new Error("Nenhuma gerência identificada. Verifique o arquivo.");
+        throw new Error("Nenhuma gerencia identificada. Verifique o arquivo.");
       }
-
       setProcessedData(parsedData);
     } catch (err) {
-      setError("Erro ao processar Excel: " + err.message);
+      setError("Erro ao processar relatorio: " + err.message);
       console.error(err);
     } finally {
       setProcessing(false);
@@ -347,138 +607,127 @@ const App = () => {
   const generateCambistaImage = async (data) => {
     const canvas = document.createElement("canvas");
     const ctx = canvas.getContext("2d");
-
-    const img = await loadImage(arteColaboradorSrc, "cambista");
-
+    let img;
+    try {
+      img = await loadImage(arteColaboradorNovoSrc, "cambista_novo");
+    } catch {
+      img = await loadImage(arteColaboradorSrc, "cambista_fallback");
+    }
     canvas.width = img.naturalWidth;
     canvas.height = img.naturalHeight;
     ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-
-    const valores = {
-      apurado: toCurrency(data.entradas),
-      comissao: toCurrency(data.comissao),
-      premios: toCurrency(data.saidas),
-      liquido: toCurrency(data.liquido),
-      lancamentos: toCurrency(data.lancamentos),
-      total: toCurrency(data.parcial || data.liquido),
+    const boxes = {
+      // Coordenadas calibradas a partir da arte 1080x1080.
+      vendedor: { x: 0.4972, y: 0.3981, w: 0.4269, h: 0.0917 },
+      saldoAte: { x: 0.4963, y: 0.5065, w: 0.4269, h: 0.0917 },
+      // A caixa amarela ocupa 0.0759..0.9250; este recorte ignora a zona do "R$" fixo.
+      saldo: { x: 0.225, y: 0.6509, w: 0.69, h: 0.162 },
     };
+    const drawFittedText = (text, box, options = {}) => {
+      const {
+        maxSize = Math.round(canvas.height * 0.06),
+        minSize = Math.round(canvas.height * 0.026),
+        color = "#0b2f8f",
+        align = "left",
+        weight = 900,
+        horizontalPadding = 0.03,
+        nudgeUnitsX = 0,
+        nudgeUnitsY = 0,
+        sizeSteps = null,
+        textVariants = null,
+      } = options;
+      const x = Math.round(box.x * canvas.width);
+      const y = Math.round(box.y * canvas.height);
+      const w = Math.round(box.w * canvas.width);
+      const h = Math.round(box.h * canvas.height);
+      const contentText = String(text || "").trim();
+      if (!contentText) return;
+      const maxWidth = Math.max(20, w - Math.round(w * horizontalPadding * 2));
+      let fontSize = maxSize;
+      let renderedText = contentText;
 
-    const base = Math.max(canvas.width, canvas.height);
-    const fontSm = Math.round(base * 0.032);
-    const fontMd = Math.round(base * 0.04);
-    const fontLg = Math.round(base * 0.058);
-    const UNIT_Y = Math.round(fontMd * 0.35);
-    const UNIT_X = Math.round(fontMd * 0.4);
+      if (Array.isArray(sizeSteps) && sizeSteps.length) {
+        const candidateSizes = [...new Set(sizeSteps.filter(Boolean))].sort(
+          (a, b) => b - a
+        );
+        const candidateTexts =
+          Array.isArray(textVariants) && textVariants.length
+            ? textVariants
+            : [contentText];
 
-    const POS = {
-      periodo: [0.62, 0.23],
-      vendedor: [0.6, 0.355],
-      apurado: [0.77, 0.47],
-      comissao: [0.77, 0.535],
-      premios: [0.77, 0.6],
-      liquido: [0.77, 0.665],
-      lancamentos: [0.77, 0.755],
-      total: [0.77, 0.84],
-    };
+        let picked = null;
+        for (const candidateText of candidateTexts) {
+          for (const candidateSize of candidateSizes) {
+            ctx.font = `${weight} ${candidateSize}px "Montserrat", Arial, sans-serif`;
+            if (ctx.measureText(candidateText).width <= maxWidth) {
+              picked = { fontSize: candidateSize, text: candidateText };
+              break;
+            }
+          }
+          if (picked) break;
+        }
 
-    const OFFSET_MAP = {
-      periodo: { x: -13, y: 4.5 },
-      vendedor: { x: -3, y: 3 },
-      apurado: { x: 0, y: 1 },
-      comissao: { x: 0, y: 2 },
-      premios: { x: 0, y: 3 },
-      liquido: { x: 0, y: 4 },
-      lancamentos: { x: 0, y: 3 },
-      total: { x: 0, y: 3 },
-    };
-
-    const point = (key) => {
-      const [px, py] = POS[key] || [0.5, 0.5];
-      const offset = OFFSET_MAP[key] || { x: 0, y: 0 };
-      return {
-        x: Math.round(px * canvas.width + offset.x * UNIT_X),
-        y: Math.round(py * canvas.height + offset.y * UNIT_Y),
-      };
-    };
-
-    const draw = (text, key, options = {}) => {
-      const { align = "left", size = fontMd, color = "#041046" } = options;
-      const p = point(key);
-      ctx.fillStyle = color;
-      ctx.textAlign = align;
-      ctx.textBaseline = "middle";
-      ctx.font = `900 ${size}px "Montserrat", Arial, sans-serif`;
-      ctx.fillText(String(text || ""), p.x, p.y);
-    };
-
-    draw(data.periodo || "-", "periodo", {
-      align: "left",
-      size: Math.round(fontSm * 0.95),
-      color: "#ffffff",
-    });
-
-    // Renderização inteligente do nome do vendedor para evitar overflow
-    const renderVendedorName = (name) => {
-      const upperName = (name || "Vendedor").toUpperCase();
-      const length = upperName.length;
-
-      // Ajuste ainda mais agressivo para nomes compostos
-      let fontSize = Math.round(fontLg * 0.7); // Começar com 70% (~40px) como padrão
-      if (length <= 6) fontSize = fontLg; // Nomes muito curtos: 58px
-      if (length <= 10) fontSize = Math.round(fontLg * 0.85); // ~49px
-      if (length <= 15) fontSize = Math.round(fontLg * 0.75); // ~43px
-      if (length > 20) fontSize = Math.round(fontLg * 0.6); // ~35px
-      if (length > 25) fontSize = Math.round(fontLg * 0.55); // ~32px
-
-      // Se ainda for muito longo, quebrar em 2 linhas
-      if (length > 25) {
-        const words = upperName.split(" ");
-        if (words.length >= 2) {
-          const midPoint = Math.ceil(words.length / 2);
-          const line1 = words.slice(0, midPoint).join(" ");
-          const line2 = words.slice(midPoint).join(" ");
-
-          // Desenhar primeira linha
-          draw(line1, "vendedor", {
-            align: "left",
-            size: Math.round(fontSize * 0.9),
-            color: "#041046",
-          });
-
-          // Desenhar segunda linha (ligeiramente abaixo)
-          const pos = point("vendedor");
-          ctx.fillStyle = "#041046";
-          ctx.textAlign = "left";
-          ctx.textBaseline = "middle";
-          ctx.font = `900 ${Math.round(
-            fontSize * 0.9
-          )}px "Montserrat", Arial, sans-serif`;
-          ctx.fillText(line2, pos.x, pos.y + Math.round(fontSize * 0.7));
-
-          return;
+        if (picked) {
+          fontSize = picked.fontSize;
+          renderedText = picked.text;
+        } else {
+          fontSize = candidateSizes[candidateSizes.length - 1];
+          renderedText = candidateTexts[candidateTexts.length - 1];
+        }
+      } else {
+        while (fontSize > minSize) {
+          ctx.font = `${weight} ${fontSize}px "Montserrat", Arial, sans-serif`;
+          if (ctx.measureText(contentText).width <= maxWidth) break;
+          fontSize -= 2;
         }
       }
-
-      // Renderização normal com fonte ajustada
-      draw(upperName, "vendedor", {
-        align: "left",
-        size: fontSize,
-        color: "#041046",
-      });
+      const anchorX =
+        align === "center"
+          ? x + Math.round(w / 2)
+          : x + Math.round(w * horizontalPadding);
+      ctx.fillStyle = color;
+      ctx.textAlign = align === "center" ? "center" : "left";
+      ctx.textBaseline = "middle";
+      ctx.font = `${weight} ${fontSize}px "Montserrat", Arial, sans-serif`;
+      // 1 unidade = largura aproximada de 1 espaco no tamanho de fonte atual.
+      const unitPx = Math.max(4, ctx.measureText(" ").width);
+      const finalX = anchorX + Math.round(nudgeUnitsX * unitPx);
+      const finalY = y + Math.round(h / 2) + Math.round(nudgeUnitsY * unitPx);
+      ctx.fillText(renderedText, finalX, finalY);
     };
-
-    renderVendedorName(data.nome);
-
-    const drawValor = (value, key, opts = {}) =>
-      draw(value, key, { align: "center", size: fontMd, ...opts });
-
-    drawValor(valores.apurado, "apurado");
-    drawValor(valores.comissao, "comissao");
-    drawValor(valores.premios, "premios");
-    drawValor(valores.liquido, "liquido");
-    drawValor(valores.lancamentos, "lancamentos");
-    drawValor(valores.total, "total", { size: Math.round(fontLg * 0.8) });
-
+    const vendedor = buildVendorNameVariants(data?.nome);
+    const saldoAte = normalizeCell(data?.periodo || data?.saldoAte || "-");
+    const saldo = toCurrency(
+      data?.saldoAnteriorNumero ?? data?.saldoAnterior ?? data?.parcial ?? 0
+    );
+    drawFittedText(vendedor[0], boxes.vendedor, {
+      color: "#0b2f8f",
+      align: "center",
+      horizontalPadding: 0.05,
+      sizeSteps: [
+        Math.round(canvas.height * 0.054),
+        Math.round(canvas.height * 0.049),
+        Math.round(canvas.height * 0.044),
+      ],
+      textVariants: vendedor,
+    });
+    drawFittedText(saldoAte, boxes.saldoAte, {
+      maxSize: Math.round(canvas.height * 0.05),
+      minSize: Math.round(canvas.height * 0.022),
+      color: "#0b2f8f",
+      align: "left",
+      horizontalPadding: 0.028,
+      nudgeUnitsX: 4,
+    });
+    drawFittedText(saldo, boxes.saldo, {
+      maxSize: Math.round(canvas.height * 0.11),
+      minSize: Math.round(canvas.height * 0.038),
+      color: "#000000",
+      align: "left",
+      horizontalPadding: 0.03,
+      nudgeUnitsX: 4,
+      nudgeUnitsY: 0,
+    });
     return canvas.toDataURL("image/png");
   };
 
@@ -557,14 +806,14 @@ const App = () => {
 
     let currentY = margin + 20;
 
-    // Título
+    // Titulo
     ctx.fillStyle = "#1a365d";
     ctx.font = fontTitle;
     ctx.textAlign = "center";
-    ctx.fillText("RELATÓRIO DE ÁREA", width / 2, currentY);
+    ctx.fillText("RELATORIO DE AREA", width / 2, currentY);
     currentY += 40;
 
-    // Nome da área
+    // Nome da area
     ctx.fillStyle = "#2d3748";
     ctx.font = fontHeader;
     ctx.fillText(gerente.nome || "Área", width / 2, currentY);
@@ -1017,6 +1266,16 @@ const App = () => {
         await new Promise((resolve) => setTimeout(resolve, 100));
 
         for (const cambista of gerente.cambistas) {
+          const saldoAnteriorAtual =
+            cambista?.saldoAnteriorNumero ??
+            cambista?.saldoAnterior ??
+            cambista?.parcial ??
+            0;
+
+          if (isNearZero(saldoAnteriorAtual)) {
+            continue;
+          }
+
           const cambistaImg = await generateCambistaImage({
             ...cambista,
             periodo: gerente.periodo,
@@ -1074,7 +1333,7 @@ const App = () => {
       <div className="relative z-10 max-w-6xl mx-auto p-8 space-y-6">
         <div className="bg-white/5 backdrop-blur-xl rounded-2xl p-6 border border-white/10 shadow-2xl">
           <label className="block text-sm font-semibold text-[#ffe8a0] uppercase tracking-widest mb-2">
-            Período do relatório
+            Periodo do relatorio
           </label>
           <input
             type="text"
@@ -1084,7 +1343,8 @@ const App = () => {
             className="w-full bg-white/90 text-[#0b1e6d] rounded-xl px-4 py-3 font-semibold focus:outline-none focus:ring-2 focus:ring-[#f4c041]"
           />
           <p className="text-blue-100/70 text-sm mt-2">
-            Esse período será exibido nas artes e no resumo de cada gerente.
+            Em PDF a data de fechamento e lida automaticamente. Em Excel/CSV,
+            preencha o periodo manualmente.
           </p>
         </div>
 
@@ -1096,7 +1356,7 @@ const App = () => {
                   <Upload className="w-12 h-12 text-white" />
                 </div>
                 <div className="absolute -top-2 -right-2 w-8 h-8 bg-[#f4c041] text-[#031046] rounded-full flex items-center justify-center font-black animate-bounce">
-                  <span className="text-xs">Excel</span>
+                  <span className="text-xs">ARQ</span>
                 </div>
               </div>
 
@@ -1111,7 +1371,7 @@ const App = () => {
               <input
                 ref={fileInputRef}
                 type="file"
-                accept=".xlsx,.xls,.csv"
+                accept=".xlsx,.xls,.csv,.pdf"
                 onChange={handleFileUpload}
                 className="hidden"
               />
@@ -1249,3 +1509,4 @@ const App = () => {
 };
 
 export default App;
+

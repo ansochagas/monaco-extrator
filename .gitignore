@@ -28,7 +28,15 @@ Thumbs.db
 # Logs
 logs/
 *.log
+vite.err
+vite.log
 
 # Temporary files
 *.tmp
 *.temp
+
+# Bot runtime data
+bot/.session/
+bot/output/
+bot/config/*.json
+!bot/config/*.example.json

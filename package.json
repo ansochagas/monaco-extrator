@@ -7,12 +7,19 @@
     "dev": "vite",
     "build": "vite build",
     "lint": "eslint . --ext js,jsx --report-unused-disable-directives --max-warnings 0",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "bot:capture": "node ./bot/capture-coletas.mjs",
+    "bot:wa:bootstrap": "node ./bot/whatsapp-bootstrap.mjs",
+    "bot:wa:send": "node ./bot/send-whatsapp.mjs",
+    "bot:wa:execute": "node ./bot/send-whatsapp.mjs --execute",
+    "bot:wa:install-browser": "playwright install chromium"
   },
   "dependencies": {
+    "cheerio": "^1.2.0",
     "jszip": "^3.10.1",
     "lucide-react": "^0.344.0",
     "pdfjs-dist": "^4.0.269",
+    "playwright": "^1.58.2",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "xlsx": "^0.18.5"
