@@ -620,7 +620,7 @@ const App = () => {
       // Coordenadas calibradas a partir da arte 1080x1080.
       vendedor: { x: 0.4972, y: 0.3981, w: 0.4269, h: 0.0917 },
       saldoAte: { x: 0.4963, y: 0.5065, w: 0.4269, h: 0.0917 },
-      // A caixa amarela ocupa 0.0759..0.9250; este recorte ignora a zona do "R$" fixo.
+      // Area util do valor dentro da caixa amarela, desconsiderando o "R$" fixo da arte.
       saldo: { x: 0.225, y: 0.6509, w: 0.69, h: 0.162 },
     };
     const drawFittedText = (text, box, options = {}) => {
@@ -720,13 +720,15 @@ const App = () => {
       nudgeUnitsX: 4,
     });
     drawFittedText(saldo, boxes.saldo, {
-      maxSize: Math.round(canvas.height * 0.11),
-      minSize: Math.round(canvas.height * 0.038),
       color: "#000000",
-      align: "left",
-      horizontalPadding: 0.03,
-      nudgeUnitsX: 4,
-      nudgeUnitsY: 0,
+      align: "center",
+      horizontalPadding: 0.08,
+      sizeSteps: [
+        Math.round(canvas.height * 0.11),
+        Math.round(canvas.height * 0.102),
+        Math.round(canvas.height * 0.094),
+        Math.round(canvas.height * 0.086),
+      ],
     });
     return canvas.toDataURL("image/png");
   };
